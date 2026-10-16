@@ -1,0 +1,112 @@
+import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.option.KeyBinding;
+import net.minecraft.client.util.InputUtil;
+import net.minecraft.entity.Entity;
+import net.minecraft.entity.vehicle.BoatEntity;
+import net.minecraft.text.Text;
+import net.minecraft.util.math.Vec3d;
+import org.lwjgl.glfw.GLFW;
+
+public final class BoatFlyClient implements ClientModInitializer {
+    private static KeyBinding toggleKey;
+    private static KeyBinding forwardKey;
+    private static KeyBinding backKey;
+    private static KeyBinding leftKey;
+    private static KeyBinding rightKey;
+    private static KeyBinding upKey;
+    private static KeyBinding downKey;
+
+    private static boolean enabled = false;
+    private static BoatEntity controlledBoat = null;
+
+    private static final double HORIZONTAL_SPEED = 0.85;
+    private static final double VERTICAL_SPEED = 0.65;
+
+    @Override
+    public void onInitializeClient() {
+        // Every BoatFly control is registered with Minecraft, so players can
+        // rebind them in Options > Controls > Key Binds.
+        toggleKey = register("key.hugoh4x0r_boatfly.toggle", GLFW.GLFW_KEY_G);
+        forwardKey = register("key.hugoh4x0r_boatfly.forward", GLFW.GLFW_KEY_W);
+        backKey = register("key.hugoh4x0r_boatfly.back", GLFW.GLFW_KEY_S);
+        leftKey = register("key.hugoh4x0r_boatfly.left", GLFW.GLFW_KEY_A);
+        rightKey = register("key.hugoh4x0r_boatfly.right", GLFW.GLFW_KEY_D);
+        upKey = register("key.hugoh4x0r_boatfly.up", GLFW.GLFW_KEY_SPACE);
+        downKey = register("key.hugoh4x0r_boatfly.down", GLFW.GLFW_KEY_LEFT_SHIFT);
+
+        ClientTickEvents.END_CLIENT_TICK.register(BoatFlyClient::tick);
+    }
+
+    private static KeyBinding register(String translationKey, int defaultKey) {
+        return KeyBindingHelper.registerKeyBinding(new KeyBinding(
+                translationKey,
+                InputUtil.Type.KEYSYM,
+                defaultKey,
+                KeyBinding.Category.MOVEMENT
+        ));
+    }
+
+    private static void tick(MinecraftClient client) {
+        while (toggleKey.wasPressed()) {
+            enabled = !enabled;
+            if (!enabled) {
+                restoreBoatGravity();
+            }
+            if (client.player != null) {
+                client.player.sendMessage(Text.literal(
+                        "BoatFly: " + (enabled ? "ON" : "OFF") +
+                        " — change controls in Options > Controls > Key Binds"
+                ), true);
+            }
+        }
+
+        if (client.player == null || client.world == null) {
+            restoreBoatGravity();
+            return;
+        }
+
+        Entity vehicle = client.player.getVehicle();
+        if (!enabled || !(vehicle instanceof BoatEntity boat)) {
+            restoreBoatGravity();
+            return;
+        }
+
+        controlledBoat = boat;
+        boat.setNoGravity(true);
+
+        boolean forward = forwardKey.isPressed();
+        boolean back = backKey.isPressed();
+        boolean left = leftKey.isPressed();
+        boolean right = rightKey.isPressed();
+        boolean up = upKey.isPressed();
+        boolean down = downKey.isPressed();
+
+        double f = (forward ? 1.0 : 0.0) - (back ? 1.0 : 0.0);
+        double s = (right ? 1.0 : 0.0) - (left ? 1.0 : 0.0);
+
+        double yaw = Math.toRadians(client.player.getYaw());
+        double x = (-Math.sin(yaw) * f) + (Math.cos(yaw) * s);
+        double z = ( Math.cos(yaw) * f) + (Math.sin(yaw) * s);
+
+        double length = Math.sqrt(x * x + z * z);
+        if (length > 1.0) {
+            x /= length;
+            z /= length;
+        }
+
+        double y = (up ? VERTICAL_SPEED : 0.0) - (down ? VERTICAL_SPEED : 0.0);
+
+        boat.setVelocity(new Vec3d(x * HORIZONTAL_SPEED, y, z * HORIZONTAL_SPEED));
+        boat.velocityModified = true;
+    }
+
+    private static void restoreBoatGravity() {
+        if (controlledBoat != null) {
+            controlledBoat.setNoGravity(false);
+            controlledBoat = null;
+        }
+    }
+}
